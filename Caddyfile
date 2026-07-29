@@ -1,0 +1,37 @@
+delnik-app.ru, www.delnik-app.ru {
+	encode zstd gzip
+
+	@api path /auth/* /rest/* /realtime/* /storage/* /functions/* /graphql/* /pg/*
+	handle @api {
+		reverse_proxy kong:8000
+	}
+
+	@sw path /flutter_service_worker.js
+	handle @sw {
+		header Content-Type "text/javascript; charset=utf-8"
+		header Cache-Control "no-cache, no-store, must-revalidate"
+		respond `self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',(e)=>{e.waitUntil((async()=>{for(const k of await caches.keys())await caches.delete(k);await self.clients.claim();for(const c of await self.clients.matchAll({type:'window'}))c.navigate(c.url);await self.registration.unregister();})());});` 200
+	}
+
+	handle {
+		root * /srv/www
+
+		# Точка входа. Главное отличие от прошлой версии: добавлен "/",
+		# иначе заход на https://delnik-app.ru/ не попадал под правило
+		# и браузер отдавал старый index.html из своего кеша.
+		@entry path / /index.html /flutter_bootstrap.js /flutter.js /main.dart.js /version.json /manifest.json
+		header @entry Cache-Control "no-cache, no-store, must-revalidate"
+		header @entry Pragma "no-cache"
+		header @entry Expires "0"
+
+		# Шрифты, картинки и canvaskit: браузер каждый раз спрашивает
+		# "не изменилось ли", и при совпадении получает пустой ответ 304.
+		# Файл заново не качается, но и застрять на старой версии нельзя.
+		@static path /assets/* /canvaskit/* /icons/*
+		header @static Cache-Control "no-cache"
+
+		header -X-Frame-Options
+		try_files {path} /index.html
+		file_server
+	}
+}
